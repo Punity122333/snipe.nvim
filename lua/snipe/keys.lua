@@ -7,43 +7,43 @@ function M.register()
   local nav    = require("snipe.nav")
   local search = require("snipe.search")
   local rg     = require("snipe.rg")
-  local git_root = require("snipe.picker").git_root
 
   local maps = {
     -- Nav
-    { "n", "<leader>ff", nav.files,                         "Nav: files (fd)"               },
-    { "n", "<leader>fb", nav.buffers,                       "Nav: buffers"                  },
-    { "n", "<leader>f'", nav.marks,                         "Nav: marks"                    },
-    { "n", "<leader>fr", nav.references,                    "Nav: LSP references"            },
-    { "n", "<leader>fo", nav.oldfiles,                      "Nav: recent files"             },
-    { "n", "<leader>fj", nav.projects,                      "Nav: projects"                 },
-    { "n", "<leader>fd", function() nav.diagnostics(false) end, "Nav: diagnostics (buffer)" },
-    { "n", "<leader>f;", function() nav.diagnostics(true)  end, "Nav: diagnostics (workspace)" },
+    { "n", "<leader>ff", nav.files,                           "files (fd)"            },
+    { "n", "<leader>fb", nav.buffers,                         "buffers"               },
+    { "n", "<leader>f'", nav.marks,                           "marks"                 },
+    { "n", "<leader>fr", nav.references,                      "LSP references"        },
+    { "n", "<leader>fo", nav.oldfiles,                        "recent files"          },
+    { "n", "<leader>fj", nav.projects,                        "projects"              },
+    { "n", "<leader>fd", function() nav.diagnostics(false) end, "diagnostics (buffer)"  },
+    { "n", "<leader>f;", function() nav.diagnostics(true)  end, "diagnostics (workspace)"},
 
     -- Search
-    { "n", "<leader>sa",  search.autocmds,                  "Search: Autocmds"              },
-    { "n", "<leader>sc",  search.cmdhistory,                 "Search: Command History"       },
-    { "n", "<leader>sC",  search.commands,                   "Search: Commands"              },
-    { "n", "<leader>sg",  function() search.grep() end,      "Search: Grep (root)"           },
-    { "n", "<leader>s.",  search.grep_cwd,                   "Search: Grep (cwd)"            },
-    { "n", "<leader>sh",  search.help,                       "Search: Help Pages"            },
-    { "n", "<leader>sH",  search.highlights,                 "Search: Highlights"            },
-    { "n", "<leader>si",  search.icons,                      "Search: Icons"                 },
-    { "n", "<leader>sj",  search.jumps,                      "Search: Jumps"                 },
-    { "n", "<leader>sk",  search.keymaps,                    "Search: Keymaps"               },
-    { "n", "<leader>sl",  search.loclist,                    "Search: Location List"         },
-    { "n", "<leader>sM",  search.manpages,                   "Search: Man Pages"             },
-    { "n", "<leader>sp",  search.plugins,                    "Search: Plugin Spec"           },
-    { "n", "<leader>sq",  search.quickfix,                   "Search: Quickfix"              },
-    { "n", "<leader>su",  search.undo,                       "Search: Undo History"          },
-    { "n", "<leader>sw",  function() search.grep_word(true)  end, "Search: Grep Word (root)" },
-    { "n", "<leader>sW",  function() search.grep_word(false) end, "Search: Grep Word (cwd)"  },
-    { "n", '<leader>s"',  search.registers,                  "Search: Registers"             },
-    { "n", "<leader>s/",  search.searchhistory,              "Search: Search History"        },
-    { "n", "<leader>sn",  search.noice,                      "Search: Noice History"         },
+    { "n", "<leader>sa",  search.autocmds,                   "Autocmds"              },
+    { "n", "<leader>sc",  search.cmdhistory,                 "Command History"       },
+    { "n", "<leader>sC",  search.commands,                   "Commands"              },
+    { "n", "<leader>sg",  function() search.grep() end,      "Grep (root)"           },
+    { "n", "<leader>s.",  search.grep_cwd,                   "Grep (cwd)"            },
+    { "n", "<leader>sh",  search.help,                       "Help Pages"            },
+    { "n", "<leader>sH",  search.highlights,                 "Highlights"            },
+    { "n", "<leader>si",  search.icons,                      "Icons"                 },
+    { "n", "<leader>sj",  search.jumps,                      "Jumps"                 },
+    { "n", "<leader>sk",  search.keymaps,                    "Keymaps"               },
+    { "n", "<leader>sl",  search.loclist,                    "Location List"         },
+    { "n", "<leader>sM",  search.manpages,                   "Man Pages"             },
+    { "n", "<leader>sp",  search.plugins,                    "Plugin Spec"           },
+    { "n", "<leader>sq",  search.quickfix,                   "Quickfix"              },
+    { "n", "<leader>su",  search.undo,                       "Undo History"          },
+    { "n", "<leader>sw",  function() search.grep_word(true)  end, "Grep Word (root)"  },
+    { "n", "<leader>sW",  function() search.grep_word(false) end, "Grep Word (cwd)"   },
+    { "n", '<leader>s"',  search.registers,                  "Registers"             },
+    { "n", "<leader>s/",  search.searchhistory,              "Search History"        },
+    { "n", "<leader>sn",  search.noice,                      "Noice History"         },
 
     -- Rg
-    { "n", "<leader>fw",  rg.rg,                             "Rg: grep (fast)"              },
+    { "n", "<leader>fw",  rg.rg,                             "grep (fast)"           },
+    { "n", "<leader>/",  rg.rg,                             "grep (fast)"           },
   }
 
   for _, m in ipairs(maps) do
