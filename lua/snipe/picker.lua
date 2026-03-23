@@ -457,6 +457,34 @@ function M.open_picker(opts)
     end
   end
 
+  -- ── window focus movement (Ctrl+hjkl) ────────────────────────────────────────
+  local function focus(win)
+    return function()
+      vim.api.nvim_set_current_win(win)
+      if win == input_win then vim.cmd("startinsert") else vim.cmd("stopinsert") end
+    end
+  end
+  local function focus_input()   vim.api.nvim_set_current_win(input_win);   vim.cmd("startinsert") end
+  local function focus_results() vim.api.nvim_set_current_win(results_win); vim.cmd("stopinsert")  end
+  local function focus_preview() vim.api.nvim_set_current_win(preview_win); vim.cmd("stopinsert")  end
+
+  -- from input
+  do local ko = { noremap = true, silent = true, buffer = input_buf }
+    vim.keymap.set({ "i", "n" }, "<C-j>", focus_results, ko)
+    vim.keymap.set({ "i", "n" }, "<C-l>", focus_preview, ko)
+  end
+  -- from results
+  do local ko = { noremap = true, silent = true, buffer = results_buf }
+    vim.keymap.set({ "i", "n" }, "<C-k>", focus_input,   ko)
+    vim.keymap.set({ "i", "n" }, "<C-h>", focus_input,   ko)
+    vim.keymap.set({ "i", "n" }, "<C-l>", focus_preview, ko)
+  end
+  -- from preview
+  do local ko = { noremap = true, silent = true, buffer = preview_buf }
+    vim.keymap.set({ "i", "n" }, "<C-h>", focus_results, ko)
+    vim.keymap.set({ "i", "n" }, "<C-j>", focus_results, ko)
+  end
+
   vim.api.nvim_buf_attach(input_buf, false, {
     on_lines = function()
       local raw = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ""

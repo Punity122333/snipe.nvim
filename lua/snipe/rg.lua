@@ -34,23 +34,6 @@ function M.rg()
   local input_outer = 3
   local results_h   = box_h - input_outer - 1
 
-  -- ─── Backdrop (Zero Border, Full Edge-to-Edge) ─────────────────────────────
-  vim.api.nvim_set_hl(0, "RgBackdrop", { bg = "#1a1b26" })
-  local backdrop_buf = vim.api.nvim_create_buf(false, true)
-  local backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
-    relative = "editor",
-    width = W,
-    height = H,
-    row = 0,
-    col = 0,
-    style = "minimal",
-    border = "none", -- This kills the outer border
-    focusable = false,
-    zindex = 45,
-  })
-  vim.wo[backdrop_win].winhl = "Normal:RgBackdrop,FloatBorder:RgBackdrop"
-  -- ──────────────────────────────────────────────────────────────────────────
-
   require("snipe.picker").setup_hl()
   vim.api.nvim_set_hl(0, "RgNormal",       { fg = "#c0caf5" })
   vim.api.nvim_set_hl(0, "RgBorder",       { fg = "#27a1b9" })
@@ -263,7 +246,6 @@ function M.rg()
   end
 
   local function close()
-    pcall(vim.api.nvim_win_close, backdrop_win, true)
     pcall(vim.api.nvim_win_close, input_win,   true)
     pcall(vim.api.nvim_win_close, results_win, true)
     pcall(vim.api.nvim_win_close, preview_win, true)
@@ -310,6 +292,25 @@ function M.rg()
     else
       vim.keymap.set("n", "q", close, opts)
     end
+  end
+
+  -- ── window focus movement (Ctrl+hjkl) ─────────────────────────────────────
+  local function focus_input()   vim.api.nvim_set_current_win(input_win);   vim.cmd("startinsert") end
+  local function focus_results() vim.api.nvim_set_current_win(results_win); vim.cmd("stopinsert")  end
+  local function focus_preview() vim.api.nvim_set_current_win(preview_win); vim.cmd("stopinsert")  end
+
+  do local ko = { noremap = true, silent = true, buffer = input_buf }
+    vim.keymap.set({ "i", "n" }, "<C-j>", focus_results, ko)
+    vim.keymap.set({ "i", "n" }, "<C-l>", focus_preview, ko)
+  end
+  do local ko = { noremap = true, silent = true, buffer = results_buf }
+    vim.keymap.set({ "i", "n" }, "<C-k>", focus_input,   ko)
+    vim.keymap.set({ "i", "n" }, "<C-h>", focus_input,   ko)
+    vim.keymap.set({ "i", "n" }, "<C-l>", focus_preview, ko)
+  end
+  do local ko = { noremap = true, silent = true, buffer = preview_buf }
+    vim.keymap.set({ "i", "n" }, "<C-h>", focus_results, ko)
+    vim.keymap.set({ "i", "n" }, "<C-j>", focus_results, ko)
   end
 
   vim.api.nvim_buf_attach(input_buf, false, {
