@@ -22,6 +22,8 @@ function M.register()
     -- Search
     { "n", "<leader>sa",  search.autocmds,                   "Autocmds"              },
     { "n", "<leader>sc",  search.cmdhistory,                 "Command History"       },
+    { "n", "<leader>sd",  function() nav.diagnostics(true)  end, "diagnostics (workspace)"},
+    { "n", "<leader>sD",  function() nav.diagnostics(false)  end, "diagnostics (buffer)"},
     { "n", "<leader>sC",  search.commands,                   "Commands"              },
     { "n", "<leader>sg",  function() search.grep() end,      "Grep (root)"           },
     { "n", "<leader>s.",  search.grep_cwd,                   "Grep (cwd)"            },

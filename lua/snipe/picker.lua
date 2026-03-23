@@ -11,17 +11,17 @@ local has_devicons, devicons = pcall(require, "nvim-web-devicons")
 function M.setup_hl()
   vim.api.nvim_set_hl(0, "NavNormal",       { fg = "#c0caf5" })
   vim.api.nvim_set_hl(0, "NavBorder",       { fg = "#27a1b9" })
-  vim.api.nvim_set_hl(0, "NavTitle",        { fg = "#ff9e64", bold = true })
+  vim.api.nvim_set_hl(0, "NavTitle",        { fg = "#ff9e64" })
   vim.api.nvim_set_hl(0, "NavSelected",     { bg = "#2d3250", fg = "#c0caf5" })
-  vim.api.nvim_set_hl(0, "NavCursor",       { fg = "#7aa2f7", bold = true })
-  vim.api.nvim_set_hl(0, "NavPreviewCur",   { bg = "#e07840", fg = "#1a1b26", bold = true })
+  vim.api.nvim_set_hl(0, "NavCursor",       { fg = "#7aa2f7" })
+  vim.api.nvim_set_hl(0, "NavPreviewCur",   { bg = "#e07840", fg = "#1a1b26" })
   vim.api.nvim_set_hl(0, "NavPreviewLine",  { bg = "#1e2a3a", fg = "#c0caf5" })
-  vim.api.nvim_set_hl(0, "NavPromptArrow",  { fg = "#27a1b9", bold = true })
+  vim.api.nvim_set_hl(0, "NavPromptArrow",  { fg = "#27a1b9" })
   vim.api.nvim_set_hl(0, "NavFilePath",     { fg = "#c0caf5" })
   vim.api.nvim_set_hl(0, "NavLnum",         { fg = "#73daca" })
   vim.api.nvim_set_hl(0, "NavResultsBg",    { bg = "#1a1b26", fg = "#c0caf5" })
   vim.api.nvim_set_hl(0, "NavBackdrop",     { bg = "#1a1b26", fg = "#1a1b26" })
-  vim.api.nvim_set_hl(0, "NavMark",         { fg = "#bb9af7", bold = true })
+  vim.api.nvim_set_hl(0, "NavMark",         { fg = "#bb9af7" })
   vim.api.nvim_set_hl(0, "NavModified",     { fg = "#e0af68" })
   vim.api.nvim_set_hl(0, "NavDiagE",        { fg = "#f7768e" })
   vim.api.nvim_set_hl(0, "NavDiagW",        { fg = "#e0af68" })
@@ -29,12 +29,12 @@ function M.setup_hl()
   vim.api.nvim_set_hl(0, "NavDiagH",        { fg = "#9ece6a" })
   vim.api.nvim_set_hl(0, "SrchKey",         { fg = "#7aa2f7" })
   vim.api.nvim_set_hl(0, "SrchVal",         { fg = "#9ece6a" })
-  vim.api.nvim_set_hl(0, "SrchMode",        { fg = "#bb9af7", bold = true })
+  vim.api.nvim_set_hl(0, "SrchMode",        { fg = "#bb9af7" })
   vim.api.nvim_set_hl(0, "SrchEvent",       { fg = "#ff9e64" })
   vim.api.nvim_set_hl(0, "SrchGrp",         { fg = "#73daca" })
-  vim.api.nvim_set_hl(0, "SrchMatchCur",    { bg = "#e07840", fg = "#1a1b26", bold = true })
+  vim.api.nvim_set_hl(0, "SrchMatchCur",    { bg = "#e07840", fg = "#1a1b26" })
   vim.api.nvim_set_hl(0, "SrchMatch",       { bg = "#28344a", fg = "#c0caf5" })
-  vim.api.nvim_set_hl(0, "SrchResultMatch", { bg = "#1a1b26", fg = "#7aa2f7", bold = true })
+  vim.api.nvim_set_hl(0, "SrchResultMatch", { bg = NONE, fg = "#7aa2f7" })
 end
 
 -- ─── utilities ────────────────────────────────────────────────────────────────
@@ -472,18 +472,41 @@ function M.open_picker(opts)
   do local ko = { noremap = true, silent = true, buffer = input_buf }
     vim.keymap.set({ "i", "n" }, "<C-j>", focus_results, ko)
     vim.keymap.set({ "i", "n" }, "<C-l>", focus_preview, ko)
+    -- Prevent fallback for <C-h> and <C-k>
+    vim.keymap.set({ "i", "n" }, "<C-h>", function() end, ko)
+    vim.keymap.set({ "i", "n" }, "<C-k>", function() end, ko)
   end
   -- from results
   do local ko = { noremap = true, silent = true, buffer = results_buf }
     vim.keymap.set({ "i", "n" }, "<C-k>", focus_input,   ko)
     vim.keymap.set({ "i", "n" }, "<C-h>", focus_input,   ko)
     vim.keymap.set({ "i", "n" }, "<C-l>", focus_preview, ko)
+    -- Prevent fallback for <C-j>
+    vim.keymap.set({ "i", "n" }, "<C-j>", function() end, ko)
   end
   -- from preview
   do local ko = { noremap = true, silent = true, buffer = preview_buf }
     vim.keymap.set({ "i", "n" }, "<C-h>", focus_results, ko)
     vim.keymap.set({ "i", "n" }, "<C-j>", focus_results, ko)
+    -- Prevent fallback for <C-k> and <C-l>
+    vim.keymap.set({ "i", "n" }, "<C-k>", function() end, ko)
+    vim.keymap.set({ "i", "n" }, "<C-l>", function() end, ko)
   end
+
+  -- ── preview window scrolling with arrow keys ─────────────────────────────────
+  local function scroll_preview(delta)
+    local view = vim.fn.winsaveview()
+    local new_top = view.topline + delta
+    new_top = math.max(1, math.min(new_top, vim.fn.line('$')))
+    view.topline = new_top
+    vim.fn.winrestview(view)
+  end
+  local ko_preview = { noremap = true, silent = true, buffer = preview_buf }
+  vim.keymap.set("n", "<Up>", function() scroll_preview(-1) end, ko_preview)
+  vim.keymap.set("n", "<Down>", function() scroll_preview(1) end, ko_preview)
+  local win_height = vim.api.nvim_win_get_height(preview_win)
+  vim.keymap.set("n", "<PageUp>", function() scroll_preview(-win_height) end, ko_preview)
+  vim.keymap.set("n", "<PageDown>", function() scroll_preview(win_height) end, ko_preview)
 
   vim.api.nvim_buf_attach(input_buf, false, {
     on_lines = function()
