@@ -1,6 +1,3 @@
--- lua/snipe/init.lua
--- Public API. Call require("snipe").setup() to register default keymaps,
--- or call individual pickers directly: require("snipe").nav.files() etc.
 
 local M = {}
 
