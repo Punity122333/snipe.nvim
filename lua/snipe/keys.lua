@@ -46,6 +46,9 @@ function M.register()
     -- Rg
     { "n", "<leader>fw",  rg.rg,                             "grep (fast)"           },
     { "n", "<leader>/",  rg.rg,                             "grep (fast)"           },
+  
+    { "n", "k", require("snipe.nav").prev_res, "Scroll Results Up" },
+    { "n", "j", require("snipe.nav").next_res, "Scroll Results Down" }
   }
 
   for _, m in ipairs(maps) do

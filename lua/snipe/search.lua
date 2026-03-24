@@ -1613,6 +1613,8 @@ local function undotree_picker()
 			vim.keymap.set({ "i", "n" }, "q", close, ko)
 		else
 			vim.keymap.set("n", "q", close, ko)
+			vim.keymap.set("n", "j", next_res, ko)
+			vim.keymap.set("n", "k", prev_res, ko)
 		end
 	end
 
