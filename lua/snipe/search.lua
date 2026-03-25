@@ -1,6 +1,6 @@
 -- lua/snipe/search.lua
 -- Grep, autocmds, command history, commands, help, highlights, icons,
--- jumps, keymaps, location list, man pages, plugins, quickfix, registers,
+-- jumps, keymaps, lsp symbols, location list, man pages, plugins, quickfix, registers,
 -- search history, undo history, noice history.
 
 local M = {}
@@ -99,7 +99,7 @@ local function grep_picker(title, search_dir, initial_word)
 				text = text,
 				highlights = {
 					{ ic_s, ic_e, icon_hl },
-					{ rel_s, rel_e, "NavFilePath" },
+					{ rel_s, rel_e, "GrepFilePath" },
 					{ rel_e, rel_e + #lnum_part, "NavLnum" },
 				},
 				match_hl = match_hl,
@@ -834,6 +834,209 @@ local function quickfix_picker()
 	})
 end
 
+-- ── LSP Symbols ────────────────────────────────────────────────────────────────
+
+local function lsp_symbols_picker()
+	local kind_names = {
+		[1] = "File",
+		[2] = "Module",
+		[3] = "Namespace",
+		[4] = "Package",
+		[5] = "Class",
+		[6] = "Method",
+		[7] = "Property",
+		[8] = "Field",
+		[9] = "Constructor",
+		[10] = "Enum",
+		[11] = "Interface",
+		[12] = "Function",
+		[13] = "Variable",
+		[14] = "Constant",
+		[15] = "String",
+		[16] = "Number",
+		[17] = "Boolean",
+		[18] = "Array",
+		[19] = "Object",
+		[20] = "Key",
+		[21] = "Null",
+		[22] = "EnumMember",
+		[23] = "Struct",
+		[24] = "Event",
+		[25] = "Operator",
+		[26] = "TypeParameter",
+	}
+
+	open_picker({
+		title = "LSP Symbols",
+		live = true,
+		get_items = function(q, cb)
+			local query = vim.trim(q or "")
+			if query == "" then
+				cb({})
+				return
+			end
+			vim.lsp.buf_request_all(0, "workspace/symbol", { query = query }, function(responses)
+				local items = {}
+				for _, resp in pairs(responses or {}) do
+					for _, sym in ipairs((resp and resp.result) or {}) do
+						local location = sym.location or {}
+						local uri = sym.uri or location.uri
+						local range = sym.range or (location and location.range) or {}
+						local start = range.start or {}
+						local filepath = uri and vim.uri_to_fname(uri) or nil
+						if filepath and filepath ~= "" then
+							items[#items + 1] = {
+								name = sym.name or "(unnamed)",
+								kind = kind_names[sym.kind] or tostring(sym.kind or "?"),
+								container = sym.containerName or "",
+								file = filepath,
+								lnum = (start.line or 0) + 1,
+								col = start.character or 0,
+							}
+						end
+					end
+				end
+				table.sort(items, function(a, b)
+					if a.kind ~= b.kind then
+						return a.kind < b.kind
+					end
+					if a.name ~= b.name then
+						return a.name < b.name
+					end
+					if a.file ~= b.file then
+						return a.file < b.file
+					end
+					return a.lnum < b.lnum
+				end)
+				vim.schedule(function()
+					cb(items)
+				end)
+			end)
+		end,
+		render_item = function(item, _)
+			local rel = vim.fn.fnamemodify(item.file, ":.")
+			local lhs = string.format("   [%s] %s", item.kind, item.name)
+			local container = item.container ~= "" and ("  (" .. item.container .. ")") or ""
+			local rhs = string.format("  %s:%d", rel, item.lnum)
+			local text = lhs .. container .. rhs
+			local kind_s = 4
+			local kind_e = kind_s + #item.kind
+			local name_s = kind_e + 2
+			local name_e = name_s + #item.name
+			local file_s = #lhs + #container + 2
+			local file_e = file_s + #rel
+			return {
+				text = text,
+				highlights = {
+					{ kind_s, kind_e, "SrchMode" },
+					{ name_s, name_e, "SrchKey" },
+					{ file_s, file_e, "NavFilePath" },
+					{ file_e, file_e + 1 + #tostring(item.lnum), "NavLnum" },
+				},
+			}
+		end,
+		preview_item = function(item)
+			local lines = read_file(item.file)
+			if not lines then
+				return nil
+			end
+			return {
+				lines = lines,
+				syntax = vim.filetype.match({ filename = item.file }),
+				focus_lnum = item.lnum > 1 and item.lnum or nil,
+			}
+		end,
+		open_item = function(item, ow)
+			jump_to(ow, item.file, item.lnum, item.col)
+		end,
+	})
+end
+
+-- ── Pickers (meta) ────────────────────────────────────────────────────────────
+
+local function pickers_picker()
+	local nav = require("snipe.nav")
+	local rg = require("snipe.rg")
+	local items = {
+		{ group = "Nav", name = "Files", fn = nav.files },
+		{ group = "Nav", name = "Buffers", fn = nav.buffers },
+		{ group = "Nav", name = "Marks", fn = nav.marks },
+		{ group = "Nav", name = "References", fn = nav.references },
+		{ group = "Nav", name = "Oldfiles", fn = nav.oldfiles },
+		{ group = "Nav", name = "Projects", fn = nav.projects },
+		{ group = "Nav", name = "Diagnostics (buffer)", fn = function()
+			nav.diagnostics(false)
+		end },
+		{ group = "Nav", name = "Diagnostics (workspace)", fn = function()
+			nav.diagnostics(true)
+		end },
+
+		{ group = "Search", name = "Autocmds", fn = M.autocmds },
+		{ group = "Search", name = "Command History", fn = M.cmdhistory },
+		{ group = "Search", name = "Commands", fn = M.commands },
+		{ group = "Search", name = "Grep (root)", fn = M.grep },
+		{ group = "Search", name = "Grep (cwd)", fn = M.grep_cwd },
+		{ group = "Search", name = "Help Pages", fn = M.help },
+		{ group = "Search", name = "Highlights", fn = M.highlights },
+		{ group = "Search", name = "Icons", fn = M.icons },
+		{ group = "Search", name = "Jumps", fn = M.jumps },
+		{ group = "Search", name = "Keymaps", fn = M.keymaps },
+		{ group = "Search", name = "Location List", fn = M.loclist },
+		{ group = "Search", name = "LSP Symbols", fn = M.lsp_symbols },
+		{ group = "Search", name = "Man Pages", fn = M.manpages },
+		{ group = "Search", name = "Noice History", fn = M.noice },
+		{ group = "Search", name = "Plugin Spec", fn = M.plugins },
+		{ group = "Search", name = "Quickfix", fn = M.quickfix },
+		{ group = "Search", name = "Registers", fn = M.registers },
+		{ group = "Search", name = "Search History", fn = M.searchhistory },
+		{ group = "Search", name = "Undo History", fn = M.undo },
+
+		{ group = "RG", name = "Grep (fast)", fn = rg.rg },
+		{ group = "RG", name = "Grep Buffer", fn = rg.rg_buffer },
+	}
+
+	open_picker({
+		title = "Pickers",
+		close_strategy = "after_open",
+		all_items = items,
+		filter_items = function(all, q)
+			return filter(all, q, function(it)
+				return it.group .. " " .. it.name
+			end)
+		end,
+		render_item = function(item, _)
+			local lhs = string.format("   [%s]", item.group)
+			local text = lhs .. "  " .. item.name
+			local grp_s = 4
+			local grp_e = grp_s + #item.group
+			local name_s = #lhs + 2
+			local name_e = name_s + #item.name
+			return {
+				text = text,
+				highlights = {
+					{ grp_s, grp_e, "SrchMode" },
+					{ name_s, name_e, "SrchKey" },
+				},
+			}
+		end,
+		preview_item = function(item)
+			return {
+				lines = {
+					"  Picker : " .. item.name,
+					"  Group  : " .. item.group,
+					"",
+					"  Press <CR> to open this picker.",
+				},
+			}
+		end,
+		open_item = function(item, _)
+			if item.fn then
+				item.fn()
+			end
+		end,
+	})
+end
+
 -- ── Registers ─────────────────────────────────────────────────────────────────
 
 local function registers_picker()
@@ -1475,10 +1678,10 @@ local function undotree_picker()
 			)
 			pcall(vim.api.nvim_win_set_cursor, results_win, { selected, 0 })
 		end
-		vim.api.nvim_win_set_config(
-			results_win,
-			{ footer = string.format(" %d/%d ", selected, #filtered), footer_pos = "right" }
-		)
+		pcall(vim.api.nvim_win_set_config, results_win, {
+			footer = string.format(" %d/%d ", selected, #filtered),
+			footer_pos = "right",
+		})
 		if preview_timer then
 			preview_timer:stop()
 		end
@@ -1735,6 +1938,12 @@ function M.plugins()
 end
 function M.quickfix()
 	quickfix_picker()
+end
+function M.lsp_symbols()
+	lsp_symbols_picker()
+end
+function M.pickers()
+	pickers_picker()
 end
 function M.registers()
 	registers_picker()

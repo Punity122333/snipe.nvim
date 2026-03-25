@@ -15,7 +15,7 @@ function M.setup_hl()
 	vim.api.nvim_set_hl(0, "NavSelected", { bg = "#2d3250", fg = "#c0caf5" })
 	vim.api.nvim_set_hl(0, "NavCursor", { fg = "#7aa2f7" })
 	vim.api.nvim_set_hl(0, "NavPreviewCur", { bg = "#e07840", fg = "#1a1b26" })
-	vim.api.nvim_set_hl(0, "NavPreviewLine", { bg = "#1e2a3a", fg = "#c0caf5" })
+	vim.api.nvim_set_hl(0, "NavPreviewLine", { bg = "#1a1b26", fg = "#c0caf5" })
 	vim.api.nvim_set_hl(0, "NavPromptArrow", { fg = "#27a1b9" })
 	vim.api.nvim_set_hl(0, "NavFilePath", { fg = "#c0caf5" })
 	vim.api.nvim_set_hl(0, "NavLnum", { fg = "#73daca" })
@@ -34,10 +34,20 @@ function M.setup_hl()
 	vim.api.nvim_set_hl(0, "SrchGrp", { fg = "#73daca" })
 	vim.api.nvim_set_hl(0, "SrchMatchCur", { bg = "#e07840", fg = "#1a1b26" })
 	vim.api.nvim_set_hl(0, "SrchMatch", { bg = "#28344a", fg = "#c0caf5" })
-	vim.api.nvim_set_hl(0, "SrchResultMatch", { bg = NONE, fg = "#7aa2f7" })
+	vim.api.nvim_set_hl(0, "SrchResultMatch", { bg = "NONE", fg = "#7aa2f7" })
+	vim.api.nvim_set_hl(0, "GrepFilePath", { fg = "#c4915a" })
 end
 
 -- ─── utilities ────────────────────────────────────────────────────────────────
+
+function M.set_win_footer(win, text)
+	-- `footer`/`footer_pos` is not available on older Neovim.
+	pcall(vim.api.nvim_win_set_config, win, { footer = text or "", footer_pos = "right" })
+end
+
+function M.clear_win_footer(win)
+	pcall(vim.api.nvim_win_set_config, win, { footer = "" })
+end
 
 function M.get_icon(filepath)
 	local name = vim.fn.fnamemodify(filepath, ":t")
@@ -135,6 +145,7 @@ end
 --   render_item   fn(item, max_len) -> { text, highlights, match_hl? }
 --   preview_item  fn(item) -> { lines, syntax?, focus_lnum?, highlight_query?, match_col? }
 --   open_item     fn(item, origin_win)
+--   close_strategy "before_open" (default) | "after_open"
 
 function M.open_picker(opts)
 	M.setup_hl()
@@ -221,7 +232,8 @@ function M.open_picker(opts)
 		vim.bo[buf].modifiable = true
 		local clean = {}
 		for _, l in ipairs(lines) do
-			clean[#clean + 1] = l:gsub("\r", "")
+			-- nvim_buf_set_lines rejects entries containing embedded newlines.
+			clean[#clean + 1] = tostring(l):gsub("\r", ""):gsub("\n", " ")
 		end
 		vim.api.nvim_buf_set_lines(buf, 0, -1, false, clean)
 		vim.bo[buf].modifiable = false
@@ -423,10 +435,7 @@ function M.open_picker(opts)
 			})
 			pcall(vim.api.nvim_win_set_cursor, results_win, { selected, 0 })
 		end
-		vim.api.nvim_win_set_config(results_win, {
-			footer = string.format(" %d/%d ", selected, #filtered),
-			footer_pos = "right",
-		})
+		M.set_win_footer(results_win, string.format(" %d/%d ", selected, #filtered))
 		if preview_timer then
 			preview_timer:stop()
 		end
@@ -473,12 +482,14 @@ function M.open_picker(opts)
 
 	-- ── actions ───────────────────────────────────────────────────────────────────
 
-	local function close()
+	local function close(close_opts)
 		pcall(vim.api.nvim_win_close, backdrop_win, true)
 		pcall(vim.api.nvim_win_close, input_win, true)
 		pcall(vim.api.nvim_win_close, results_win, true)
 		pcall(vim.api.nvim_win_close, preview_win, true)
-		vim.cmd("stopinsert")
+		if not (close_opts and close_opts.keep_insert) then
+			vim.cmd("stopinsert")
+		end
 	end
 
 	local function open_selected()
@@ -486,12 +497,19 @@ function M.open_picker(opts)
 			return
 		end
 		local item = filtered[selected]
-		close()
-		vim.schedule(function()
+		if opts.close_strategy == "after_open" then
 			if opts.open_item then
 				opts.open_item(item, origin_win)
 			end
-		end)
+			close({ keep_insert = true })
+		else
+			close()
+			vim.schedule(function()
+				if opts.open_item then
+					opts.open_item(item, origin_win)
+				end
+			end)
+		end
 	end
 
 	local function next_res()

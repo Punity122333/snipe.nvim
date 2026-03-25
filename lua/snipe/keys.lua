@@ -21,6 +21,7 @@ function M.register()
 
     -- Search
     { "n", "<leader>sa",  search.autocmds,                   "Autocmds"              },
+    { "n", "<leader>sb",  rg.rg_buffer,                      "Grep Buffer"           },
     { "n", "<leader>sc",  search.cmdhistory,                 "Command History"       },
     { "n", "<leader>sd",  function() nav.diagnostics(true)  end, "diagnostics (workspace)"},
     { "n", "<leader>sD",  function() nav.diagnostics(false) end, "diagnostics (buffer)"},
@@ -34,8 +35,11 @@ function M.register()
     { "n", "<leader>sk",  search.keymaps,                    "Keymaps"               },
     { "n", "<leader>sl",  search.loclist,                    "Location List"         },
     { "n", "<leader>sM",  search.manpages,                   "Man Pages"             },
+    { "n", "<leader>sm", nav.marks,                           "marks"                 },
     { "n", "<leader>sp",  search.plugins,                    "Plugin Spec"           },
+    { "n", "<leader>sP",  search.pickers,                    "Pickers"               },
     { "n", "<leader>sq",  search.quickfix,                   "Quickfix"              },
+    { "n", "<leader>ss",  search.lsp_symbols,                "LSP Symbols"           },
     { "n", "<leader>su",  search.undo,                       "Undo History"          },
     { "n", "<leader>sw",  function() search.grep_word(true)  end, "Grep Word (root)"  },
     { "n", "<leader>sW",  function() search.grep_word(false) end, "Grep Word (cwd)"   },
@@ -46,9 +50,6 @@ function M.register()
     -- Rg
     { "n", "<leader>fw",  rg.rg,                             "grep (fast)"           },
     { "n", "<leader>/",  rg.rg,                             "grep (fast)"           },
-  
-    { "n", "k", require("snipe.nav").prev_res, "Scroll Results Up" },
-    { "n", "j", require("snipe.nav").next_res, "Scroll Results Down" }
   }
 
   for _, m in ipairs(maps) do

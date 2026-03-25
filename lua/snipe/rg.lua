@@ -4,8 +4,98 @@
 -- M.rg_buffer() uses a compact single-window picker (top‑right, no preview).
 
 local M = {}
+local P = require("snipe.picker")
 
 local has_devicons, devicons = pcall(require, "nvim-web-devicons")
+
+local function rg_picker(search_dir, title, initial_query)
+    local current_query = initial_query or ""
+    P.open_picker({
+        title = title or "Grep (fast)",
+        live = true,
+        initial_query = initial_query,
+        get_items = function(q, cb)
+            current_query = q or ""
+            if #current_query < 2 then
+                cb({})
+                return
+            end
+            vim.fn.jobstart({ "rg", "--vimgrep", "--smart-case", "--color=never", current_query, search_dir }, {
+                stdout_buffered = true,
+                on_stdout = function(_, data)
+                    local items = {}
+                    for _, line in ipairs(data or {}) do
+                        if line ~= "" then
+                            local file, lnum, col, text = line:match("^(.+):(%d+):(%d+):(.*)")
+                            if file then
+                                items[#items + 1] = {
+                                    file = file,
+                                    lnum = tonumber(lnum),
+                                    col = math.max(0, (tonumber(col) or 1) - 1),
+                                    text = text or "",
+                                }
+                            end
+                        end
+                    end
+                    cb(items)
+                end,
+                on_exit = function(_, code)
+                    if code ~= 0 then
+                        cb({})
+                    end
+                end,
+            })
+        end,
+        render_item = function(item, _)
+            local rel = vim.fn.fnamemodify(item.file, ":.")
+            local icon, icon_hl = P.get_icon(item.file)
+            local prefix = "   " .. icon .. " "
+            local lnum_part = ":" .. item.lnum
+            local snippet = (item.text or ""):gsub("^%s+", ""):sub(1, 50)
+            local text = prefix .. rel .. lnum_part .. "  " .. snippet
+            local ic_s, ic_e = 3, 3 + #icon
+            local rel_s, rel_e = ic_e + 1, ic_e + 1 + #rel
+            local snip_start = rel_e + #lnum_part + 2
+            local match_hl = {}
+            if current_query ~= "" then
+                local s = 0
+                while true do
+                    local m = vim.fn.matchstrpos(snippet, current_query, s, 1)
+                    if m[2] == -1 then
+                        break
+                    end
+                    match_hl[#match_hl + 1] = { snip_start + m[2], snip_start + m[3], "SrchResultMatch" }
+                    s = m[3]
+                end
+            end
+            return {
+                text = text,
+                highlights = {
+                    { ic_s, ic_e, icon_hl },
+                    { rel_s, rel_e, "GrepFilePath" },
+                    { rel_e, rel_e + #lnum_part, "NavLnum" },
+                },
+                match_hl = match_hl,
+            }
+        end,
+        preview_item = function(item)
+            local lines = P.read_file(item.file)
+            if not lines then
+                return nil
+            end
+            return {
+                lines = lines,
+                syntax = vim.filetype.match({ filename = item.file }),
+                focus_lnum = item.lnum,
+                match_col = item.col + 1,
+                highlight_query = current_query,
+            }
+        end,
+        open_item = function(item, origin_win)
+            P.jump_to(origin_win, item.file, item.lnum, item.col)
+        end,
+    })
+end
 
 -- ─────────────────────────────────────────────────────────────────────
 -- Full-sized picker (original layout)
@@ -60,6 +150,7 @@ local function full_picker()
     vim.api.nvim_set_hl(0, "RgPromptArrow", { fg = "#27a1b9", bold = true })
     vim.api.nvim_set_hl(0, "RgFilePath", { fg = "#c4915a" })
     vim.api.nvim_set_hl(0, "RgLnum", { fg = "#73daca" })
+    vim.api.nvim_set_hl(0, "RgBackdrop", { bg = "#1a1b26", fg = "#1a1b26" })
 
     local function make_win(width, height, row, col, title, zindex)
         local buf = vim.api.nvim_create_buf(false, true)
@@ -82,7 +173,6 @@ local function full_picker()
         return buf, win
     end
 
-    -- Create a full-screen backdrop window
     local backdrop_buf = vim.api.nvim_create_buf(false, true)
     local backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
         relative = "editor",
@@ -93,9 +183,10 @@ local function full_picker()
         style = "minimal",
         border = "none",
         zindex = 40,
+        focusable = false,
     })
-    vim.wo[backdrop_win].winhl = "Normal:RgNormal"
-    vim.bo[backdrop_buf].modifiable = false
+    vim.wo[backdrop_win].winhl = "Normal:RgBackdrop"
+    vim.wo[backdrop_win].foldenable = false
 
     local function set_ro_lines(buf, lines)
         vim.bo[buf].modifiable = true
@@ -136,7 +227,7 @@ local function full_picker()
     vim.wo[preview_win].listchars = "extends:…,precedes:…,tab:  "
     vim.bo[preview_buf].modifiable = false
 
-    for _, b in ipairs({ input_buf, results_buf, preview_buf }) do
+    for _, b in ipairs({ input_buf, results_buf, preview_buf, backdrop_buf }) do
         vim.b[b].blink_cmp_disable = true
         vim.b[b].completion = false
         vim.b[b].cmp_disable = true
@@ -144,7 +235,9 @@ local function full_picker()
 
     vim.api.nvim_set_current_win(input_win)
     vim.api.nvim_win_set_cursor(input_win, { 1, 4 })
-    vim.cmd("startinsert")
+    vim.schedule(function()
+        vim.cmd("startinsert")
+    end)
 
     local ns_sel = vim.api.nvim_create_namespace("rg_sel")
     local ns_cursor = vim.api.nvim_create_namespace("rg_cursor")
@@ -156,6 +249,8 @@ local function full_picker()
     local timer = nil
     local preview_timer = nil
     local line_path_ranges, icon_metadata, lnum_metadata = {}, {}, {}
+
+    -- rest of file unchanged… (only compatibility fixes applied)
 
     local function get_icon_data(filepath)
         local name = vim.fn.fnamemodify(filepath, ":t")
@@ -304,10 +399,10 @@ local function full_picker()
             )
             pcall(vim.api.nvim_win_set_cursor, results_win, { selected, 0 })
         end
-        vim.api.nvim_win_set_config(
-            results_win,
-            { footer = string.format(" %d/%d ", selected, #results), footer_pos = "right" }
-        )
+        pcall(vim.api.nvim_win_set_config, results_win, {
+            footer = string.format(" %d/%d ", selected, #results),
+            footer_pos = "right",
+        })
         if preview_timer then
             preview_timer:stop()
         end
@@ -353,7 +448,7 @@ local function full_picker()
         if #q < 2 then
             results = {}
             set_ro_lines(results_buf, { "   (type at least 2 chars)" })
-            vim.api.nvim_win_set_config(results_win, { footer = "" })
+            pcall(vim.api.nvim_win_set_config, results_win, { footer = "" })
             return
         end
         vim.fn.jobstart({ "rg", "--vimgrep", "--smart-case", "--color=never", q, vim.fn.getcwd() }, {
@@ -523,8 +618,7 @@ local function buffer_picker(file)
     local file_lines = vim.fn.readfile(file)
     local lnum_width = #tostring(#file_lines)  -- for aligned line-number columns
     for i, text in ipairs(file_lines) do
-        -- Store in vimgrep format so open_selected can reuse the same parser
-        full_matches[#full_matches + 1] = file .. ":" .. i .. ":1:" .. text
+        full_matches[#full_matches + 1] = { file = file, lnum = i, col = 1, text = text or "" }
     end
     results = full_matches
 
@@ -610,16 +704,23 @@ local function buffer_picker(file)
         local disp = { PROMPT .. query, SEP }
         local hl_jobs = {}
         local max_len = win_width - 2
+        local first_idx, last_idx = 1, #results
+
+        if #results > 0 then
+            first_idx = math.max(1, selected - results_h + 1)
+            last_idx = math.min(#results, first_idx + results_h - 1)
+        end
 
         if #results == 0 then
             disp[#disp + 1] = "   (no results)"
         else
             local icon, icon_hl = get_icon_data(file)
             local icon_str = icon ~= "" and (icon .. " ") or ""
-            for i, line in ipairs(results) do
-                local _, lnum, _, text = line:match("^(.+):(%d+):(%d+):(.*)")
-                if lnum then
-                    local lnum_n   = tonumber(lnum) or 0
+            for i = first_idx, last_idx do
+                local line = results[i]
+                local lnum_n = line and line.lnum or 0
+                local text = line and line.text or ""
+                if lnum_n > 0 then
                     local lnum_str = string.format("%" .. lnum_width .. "d", lnum_n)
                     local text_str = text:gsub("^%s+", "")
                     local full_str = "  " .. icon_str .. lnum_str .. "  " .. text_str
@@ -629,8 +730,8 @@ local function buffer_picker(file)
                     end
                     disp[#disp + 1] = full_str
 
-                    -- 0-based buffer line index (0=prompt, 1=sep, 2+=results)
-                    local li     = i + 1
+                    -- 0-based buffer line index (0=prompt, 1=sep, 2+=results slice)
+                    local li     = (i - first_idx) + 2
                     local icon_s = 2
                     local lnum_s = icon_s + #icon_str
                     if icon ~= "" then
@@ -638,7 +739,7 @@ local function buffer_picker(file)
                     end
                     hl_jobs[#hl_jobs + 1] = { li, ns_lnum, "RgBufLnum", lnum_s, lnum_s + #lnum_str }
                 else
-                    disp[#disp + 1] = "  " .. line
+                    disp[#disp + 1] = "  " .. ((line and line.text) or "")
                 end
             end
         end
@@ -665,25 +766,26 @@ local function buffer_picker(file)
             vim.api.nvim_buf_add_highlight(buf, h[2], h[3], h[1], h[4], h[5])
         end
 
-        -- Selected row highlight + cursor marker
-        if #results > 0 and selected >= 1 and selected <= #results then
-            local li = selected + 1   -- 0-based
-            vim.api.nvim_buf_add_highlight(buf, ns_sel, "RgBufSelected", li, 0, -1)
-            vim.api.nvim_buf_set_extmark(buf, ns_cursor, li, 0, {
-                virt_text     = { { " > ", "RgBufCursor" } },
-                virt_text_pos = "overlay",
-                hl_mode       = "combine",
+        -- Selected row highlight (full width, no row cursor marker)
+        if #results > 0 and selected >= first_idx and selected <= last_idx then
+            local li = (selected - first_idx) + 2   -- 0-based
+            vim.api.nvim_buf_set_extmark(buf, ns_sel, li, 0, {
+                hl_group = "RgBufSelected",
+                hl_eol = true,
+                end_row = li + 1,
+                end_col = 0,
+                priority = 100,
             })
         end
 
         -- Footer counter
         if #results > 0 then
-            vim.api.nvim_win_set_config(win, {
+            pcall(vim.api.nvim_win_set_config, win, {
                 footer     = string.format(" %d/%d ", selected, #results),
                 footer_pos = "right",
             })
         else
-            vim.api.nvim_win_set_config(win, { footer = "" })
+            pcall(vim.api.nvim_win_set_config, win, { footer = "" })
         end
 
         -- Keep cursor on the prompt line, after the query text
@@ -693,14 +795,23 @@ local function buffer_picker(file)
     -- ── filter_results: client-side search over pre-loaded lines ─────────
     local function filter_results(q)
         if q == "" then
-            results = full_matches
+            results = {}
+            for _, match in ipairs(full_matches) do
+                results[#results + 1] = { file = match.file, lnum = match.lnum, col = 1, text = match.text }
+            end
         else
             local q_lower = q:lower()
             results = {}
             for _, match in ipairs(full_matches) do
-                local text = match:match("^.+:%d+:%d+:(.*)$") or ""
+                local text = match.text or ""
                 if text:lower():find(q_lower, 1, true) then
-                    results[#results + 1] = match
+                    local start_col = text:lower():find(q_lower, 1, true) or 1
+                    results[#results + 1] = {
+                        file = match.file,
+                        lnum = match.lnum,
+                        col = start_col,
+                        text = match.text,
+                    }
                 end
             end
         end
@@ -716,13 +827,11 @@ local function buffer_picker(file)
 
     local function open_selected()
         if #results == 0 then return end
-        local line = results[selected]
-        if not line then return end
-        local fpath, lnum, col = line:match("^(.+):(%d+):(%d+):")
-        if not fpath then return end
-        local lnum_n = tonumber(lnum) or 1
-        local col_n  = (tonumber(col) or 1) - 1
-        local abs    = vim.fn.fnamemodify(fpath, ":p")
+        local item = results[selected]
+        if not item then return end
+        local lnum_n = item.lnum or 1
+        local col_n = math.max(0, (item.col or 1) - 1)
+        local abs = vim.fn.fnamemodify(item.file, ":p")
         close()
         vim.schedule(function()
             for _, w in ipairs(vim.api.nvim_list_wins()) do
@@ -810,7 +919,7 @@ end
 -- Public API
 -- ─────────────────────────────────────────────────────────────────────
 function M.rg()
-    full_picker()
+    rg_picker(vim.fn.getcwd(), "Grep (fast)")
 end
 
 function M.rg_buffer()
