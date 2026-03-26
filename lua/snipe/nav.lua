@@ -1,5 +1,5 @@
 -- lua/snipe/nav.lua
--- File, buffer, mark, LSP-reference, oldfile, project and diagnostic pickers.
+-- File, buffer, mark, LSP-reference, oldfile, project, git-file, config-file and diagnostic pickers.
 
 local M = {}
 
@@ -47,6 +47,81 @@ local function files_picker()
   })
 end
 
+-- ── Git Files ────────────────────────────────────────────────────────────────
+
+local function git_files_picker()
+  local function build_cmd(query)
+    local cmd = { "git", "ls-files", "--cached", "--others", "--exclude-standard" }
+    if query ~= "" then
+      -- filter client-side; git ls-files has no built-in fuzzy flag
+    end
+    return cmd
+  end
+
+  open_picker({
+    title = "Git Files", live = true,
+    get_items = function(q, cb)
+      vim.fn.jobstart(build_cmd(q), {
+        stdout_buffered = true,
+        on_stdout = function(_, data)
+          local lines = vim.tbl_filter(function(l) return l ~= "" end, data or {})
+          if q ~= "" then
+            local ql = q:lower()
+            lines = vim.tbl_filter(function(l) return l:lower():find(ql, 1, true) end, lines)
+          end
+          cb(lines)
+        end,
+        on_exit = function(_, code)
+          if code ~= 0 then
+            vim.notify("git ls-files failed – not a git repo?", vim.log.levels.WARN)
+            cb({})
+          end
+        end,
+      })
+    end,
+    render_item = function(item, max_len) return render_file_row(item, nil, nil, max_len) end,
+    preview_item = function(item) return file_preview(item, 1) end,
+    open_item    = function(item, ow) jump_to(ow, item, 1, 0) end,
+  })
+end
+
+-- ── Config Files (~/.config/nvim/) ───────────────────────────────────────────
+
+local function config_files_picker()
+  local config_dir = vim.fn.expand("~/.config/nvim")
+  local use_fd = vim.fn.executable("fd") == 1 or vim.fn.executable("fdfind") == 1
+  local fd_bin = vim.fn.executable("fd") == 1 and "fd" or "fdfind"
+
+  local function build_cmd(query)
+    if use_fd then
+      local cmd = { fd_bin, "--type", "f", "--color=never", "--hidden", "--exclude", ".git", "." , config_dir }
+      if query ~= "" then
+        -- insert pattern before the path
+        table.insert(cmd, #cmd - 1, query)
+      end
+      return cmd
+    else
+      local cmd = { "find", config_dir, "-type", "f", "-not", "-path", "*/.git/*" }
+      if query ~= "" then table.insert(cmd, "-name"); table.insert(cmd, "*" .. query .. "*") end
+      return cmd
+    end
+  end
+
+  open_picker({
+    title = "Config Files (~/.config/nvim)", live = true,
+    get_items = function(q, cb)
+      vim.fn.jobstart(build_cmd(q), {
+        stdout_buffered = true,
+        on_stdout = function(_, data) cb(vim.tbl_filter(function(l) return l ~= "" end, data or {})) end,
+        on_exit   = function(_, code) if code ~= 0 then cb({}) end end,
+      })
+    end,
+    render_item = function(item, max_len) return render_file_row(item, nil, nil, max_len) end,
+    preview_item = function(item) return file_preview(item, 1) end,
+    open_item    = function(item, ow) jump_to(ow, item, 1, 0) end,
+  })
+end
+
 -- ── Buffers ───────────────────────────────────────────────────────────────────
 
 local function buffers_picker()
@@ -76,6 +151,62 @@ local function buffers_picker()
       return { text = text, highlights = hls }
     end,
     preview_item = function(item) return file_preview(item.name, item.lnum) end,
+    open_item = function(item, ow)
+      vim.api.nvim_set_current_win(ow)
+      vim.api.nvim_set_current_buf(item.bufnr)
+      vim.api.nvim_win_set_cursor(0, { item.lnum, 0 })
+      vim.cmd("normal! zz")
+    end,
+  })
+end
+
+-- ── All Buffers (including scratch / unlisted) ────────────────────────────────
+
+local function all_buffers_picker()
+  local items = {}
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      local name     = vim.api.nvim_buf_get_name(bufnr)
+      local bt       = vim.bo[bufnr].buftype
+      local listed   = vim.bo[bufnr].buflisted
+      local display  = name ~= "" and name or ("[scratch #" .. bufnr .. "]") 
+      -- include listed files, scratch buffers, and nofile buffers; skip internal neovim windows
+      if listed or bt == "" or bt == "nofile" or bt == "acwrite" then
+        local info = vim.fn.getbufinfo(bufnr)[1]
+        items[#items + 1] = {
+          bufnr    = bufnr,
+          name     = name,
+          display  = display,
+          modified = vim.bo[bufnr].modified,
+          listed   = listed,
+          lnum     = info and info.lnum or 1,
+        }
+      end
+    end
+  end
+  open_picker({
+    title = "All Buffers", all_items = items,
+    filter_items = function(all, q) return filter(all, q, function(it) return it.display end) end,
+    render_item = function(item, _)
+      local rel      = item.name ~= "" and vim.fn.fnamemodify(item.name, ":.") or item.display
+      local icon, icon_hl = get_icon(item.name)
+      local prefix   = "   " .. icon .. " "
+      local unlisted = not item.listed and "  [u]" or ""
+      local mod_part = item.modified and "  [+]" or ""
+      local text     = prefix .. rel .. unlisted .. mod_part
+      local ic_s, ic_e = 3, 3 + #icon
+      local rel_s, rel_e = ic_e + 1, ic_e + 1 + #rel
+      local hls = { { ic_s, ic_e, icon_hl }, { rel_s, rel_e, "NavFilePath" } }
+      if not item.listed then hls[#hls + 1] = { rel_e + 2, rel_e + 5, "NavLnum" } end
+      if item.modified   then hls[#hls + 1] = { rel_e + (not item.listed and 7 or 2), rel_e + (not item.listed and 10 or 5), "NavModified" } end
+      return { text = text, highlights = hls }
+    end,
+    preview_item = function(item)
+      if item.name ~= "" then return file_preview(item.name, item.lnum) end
+      -- scratch buffer: grab lines directly
+      local lines = vim.api.nvim_buf_get_lines(item.bufnr, 0, -1, false)
+      return { lines = #lines > 0 and lines or { "(empty scratch buffer)" } }
+    end,
     open_item = function(item, ow)
       vim.api.nvim_set_current_win(ow)
       vim.api.nvim_set_current_buf(item.bufnr)
@@ -288,6 +419,9 @@ end
 
 function M.files()                      files_picker() end
 function M.buffers()                    buffers_picker() end
+function M.all_buffers()                all_buffers_picker() end
+function M.git_files()                  git_files_picker() end
+function M.config_files()              config_files_picker() end
 function M.marks()                      marks_picker() end
 function M.references()                 references_picker() end
 function M.oldfiles()                   oldfiles_picker() end

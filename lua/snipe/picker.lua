@@ -540,6 +540,9 @@ function M.open_picker(opts)
 			vim.keymap.set("n", "q", close, ko)
 			vim.keymap.set("n", "j", next_res, ko)
 			vim.keymap.set("n", "k", prev_res, ko)
+			-- In the prompt, re-entering insert with plain `i` should resume at the
+			-- same visual insertion point (normal `i` would move one char left).
+			vim.keymap.set("n", "i", "a", { noremap = true, silent = true, buffer = b })
 		end
 	end
 
