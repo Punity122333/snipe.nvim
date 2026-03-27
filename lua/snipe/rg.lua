@@ -604,7 +604,7 @@ end
 -- ─────────────────────────────────────────────────────────────────────
 -- Compact single-file picker: one box, transparent bg, orange separator
 -- ─────────────────────────────────────────────────────────────────────
-local function buffer_picker(file)
+local function buffer_picker(bufnr)
     local query        = ""
     local results      = {}
     local selected     = 1
@@ -612,11 +612,12 @@ local function buffer_picker(file)
     local timer        = nil
     local rendering    = false   -- guard: ignore on_lines during our own renders
 
-    -- ── Pre-load all lines via readfile (no subprocess, no duplicates) ────
-    -- rg with pattern "." matches every *character*, producing N copies of
-    -- each line (one per char). Reading the file directly is faster and correct.
-    local file_lines = vim.fn.readfile(file)
-    local lnum_width = #tostring(#file_lines)  -- for aligned line-number columns
+    -- ── Derive file path (may be "" for unnamed/scratch buffers) ─────────
+    local file = vim.api.nvim_buf_get_name(bufnr)
+
+    -- ── Pre-load all lines directly from the buffer (works for any buffer) ─
+    local file_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local lnum_width = #tostring(math.max(#file_lines, 1))
     for i, text in ipairs(file_lines) do
         full_matches[#full_matches + 1] = { file = file, lnum = i, col = 1, text = text or "" }
     end
@@ -831,23 +832,40 @@ local function buffer_picker(file)
         if not item then return end
         local lnum_n = item.lnum or 1
         local col_n = math.max(0, (item.col or 1) - 1)
-        local abs = vim.fn.fnamemodify(item.file, ":p")
         close()
         vim.schedule(function()
-            for _, w in ipairs(vim.api.nvim_list_wins()) do
-                if vim.api.nvim_win_get_config(w).relative == "" then
-                    local wfile = vim.fn.fnamemodify(
-                        vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w)), ":p"
-                    )
-                    if wfile == abs then
-                        vim.api.nvim_set_current_win(w)
-                        vim.api.nvim_win_set_cursor(0, { lnum_n, col_n })
-                        vim.cmd("normal! zz")
-                        return
+            -- For named buffers try to reuse an existing window showing the file.
+            -- For unnamed/scratch buffers jump directly to the buffer by number.
+            if item.file ~= "" then
+                local abs = vim.fn.fnamemodify(item.file, ":p")
+                for _, w in ipairs(vim.api.nvim_list_wins()) do
+                    if vim.api.nvim_win_get_config(w).relative == "" then
+                        local wfile = vim.fn.fnamemodify(
+                            vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w)), ":p"
+                        )
+                        if wfile == abs then
+                            vim.api.nvim_set_current_win(w)
+                            vim.api.nvim_win_set_cursor(0, { lnum_n, col_n })
+                            vim.cmd("normal! zz")
+                            return
+                        end
                     end
                 end
+                vim.cmd("edit " .. vim.fn.fnameescape(abs))
+            else
+                -- Unnamed buffer: find a window already showing it, or switch to it.
+                for _, w in ipairs(vim.api.nvim_list_wins()) do
+                    if vim.api.nvim_win_get_config(w).relative == "" then
+                        if vim.api.nvim_win_get_buf(w) == bufnr then
+                            vim.api.nvim_set_current_win(w)
+                            vim.api.nvim_win_set_cursor(0, { lnum_n, col_n })
+                            vim.cmd("normal! zz")
+                            return
+                        end
+                    end
+                end
+                vim.api.nvim_set_current_buf(bufnr)
             end
-            vim.cmd("edit " .. vim.fn.fnameescape(abs))
             vim.api.nvim_win_set_cursor(0, { lnum_n, col_n })
             vim.cmd("normal! zz")
         end)
@@ -923,12 +941,7 @@ function M.rg()
 end
 
 function M.rg_buffer()
-    local file = vim.api.nvim_buf_get_name(0)
-    if file == "" then
-        vim.notify("Current buffer has no file name", vim.log.levels.WARN)
-        return
-    end
-    buffer_picker(file)
+    buffer_picker(vim.api.nvim_get_current_buf())
 end
 
 return M
