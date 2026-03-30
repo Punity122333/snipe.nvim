@@ -1,3 +1,4 @@
+
 -- lua/snipe/picker.lua
 -- Shared open_picker factory, highlight setup, and utility helpers.
 -- Required by snipe.nav, snipe.search, and snipe.rg.
@@ -102,6 +103,63 @@ function M.git_root()
 	return (vim.v.shell_error == 0 and out ~= "") and out or vim.fn.getcwd()
 end
 
+-- Filetypes that belong to tool/sidebar windows, not editable text buffers.
+local EXCLUDED_FT = {
+	["neo-tree"]          = true,
+	["NvimTree"]          = true,
+	["nvim-tree"]         = true,
+	["snacks_explorer"]   = true,
+	["snacks_dashboard"]  = true,
+	["snacks_notif"]      = true,
+	["snacks_terminal"]   = true,
+	["snacks_picker_list"]= true,
+	["snacks_picker_input"]=true,
+	["trouble"]           = true,
+	["aerial"]            = true,
+	["Outline"]           = true,
+	["toggleterm"]        = true,
+	["dapui_scopes"]      = true,
+	["dapui_breakpoints"] = true,
+	["dapui_stacks"]      = true,
+	["dapui_watches"]     = true,
+	["dapui_console"]     = true,
+	["dapui_repl"]        = true,
+	["TelescopePrompt"]   = true,
+	["lazy"]              = true,
+	["mason"]             = true,
+	["help"]              = true,
+	["undotree"]          = true,
+	["diff"]              = true,
+	["startify"]          = true,
+	["alpha"]             = true,
+	["dashboard"]         = true,
+	["spectre_panel"]     = true,
+	["qf"]                = true,
+}
+
+--- Returns true when *w* is a regular, editable text window (not a sidebar /
+--- tool panel / floating picker).
+function M.is_valid_win(w)
+	if not vim.api.nvim_win_is_valid(w) then return false end
+	if vim.api.nvim_win_get_config(w).relative ~= "" then return false end
+	local buf = vim.api.nvim_win_get_buf(w)
+	if vim.bo[buf].buftype ~= "" then return false end
+	if EXCLUDED_FT[vim.bo[buf].filetype] then return false end
+	return true
+end
+
+--- Returns the window the user was editing before opening the picker.
+--- Prefers the currently focused window; falls back to the first valid window
+--- in the layout; last resort is whatever nvim considers current.
+function M.get_origin_win()
+	local cur = vim.api.nvim_get_current_win()
+	if M.is_valid_win(cur) then return cur end
+	for _, w in ipairs(vim.api.nvim_list_wins()) do
+		if M.is_valid_win(w) then return w end
+	end
+	return cur
+end
+
 function M.file_preview(path, focus_lnum)
 	local lines = M.read_file(path)
 	if not lines then
@@ -155,28 +213,7 @@ function M.open_picker(opts)
 	local selected = 1
 	local query = opts.initial_query or ""
 
-	local origin_win = (function()
-		local best, best_score = nil, -1
-		for _, w in ipairs(vim.api.nvim_list_wins()) do
-			if vim.api.nvim_win_get_config(w).relative == "" then
-				local buf = vim.api.nvim_win_get_buf(w)
-				local score = 0
-				if vim.bo[buf].buftype == "" then
-					score = score + 10
-				end
-				if vim.bo[buf].buflisted then
-					score = score + 2
-				end
-				if vim.api.nvim_buf_get_name(buf) ~= "" then
-					score = score + 1
-				end
-				if score > best_score then
-					best, best_score = w, score
-				end
-			end
-		end
-		return best or vim.api.nvim_get_current_win()
-	end)()
+	local origin_win = M.get_origin_win()
 
 	local ui = vim.api.nvim_list_uis()[1]
 	local W, H = ui.width, ui.height
@@ -669,3 +706,4 @@ function M.open_picker(opts)
 end
 
 return M
+

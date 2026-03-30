@@ -1,3 +1,4 @@
+
 -- lua/snipe/rg.lua
 -- Fast floating ripgrep picker.
 -- M.rg() uses original full-sized picker (with preview and two columns).
@@ -105,28 +106,7 @@ local function full_picker()
     local results = {}
     local selected = 1
 
-    local origin_win = (function()
-        local best, best_score = nil, -1
-        for _, w in ipairs(vim.api.nvim_list_wins()) do
-            if vim.api.nvim_win_get_config(w).relative == "" then
-                local buf = vim.api.nvim_win_get_buf(w)
-                local score = 0
-                if vim.bo[buf].buftype == "" then
-                    score = score + 10
-                end
-                if vim.bo[buf].buflisted then
-                    score = score + 2
-                end
-                if vim.api.nvim_buf_get_name(buf) ~= "" then
-                    score = score + 1
-                end
-                if score > best_score then
-                    best, best_score = w, score
-                end
-            end
-        end
-        return best or vim.api.nvim_get_current_win()
-    end)()
+    local origin_win = P.get_origin_win()
 
     local ui = vim.api.nvim_list_uis()[1]
     local W, H = ui.width, ui.height
@@ -623,23 +603,23 @@ local function buffer_picker(bufnr)
     end
     results = full_matches
 
-    -- ── Dimensions: compact, top-right ───────────────────────────────────
+    -- ── Dimensions: compact, top-right of the current buffer window ───────
     local ui = vim.api.nvim_list_uis()[1]
-    local W, H = ui.width, ui.height
-    local win_width = math.min(72, math.floor(W * 0.36))
-    local results_h = math.min(20, math.floor(H * 0.4))
+    local W = ui.width
+    local win_width = math.min(54, math.floor(W * 0.27))
+    local results_h = 7
     -- Layout: 1 prompt + 1 separator + results_h = total inner height
     local total_h   = 1 + 1 + results_h
-    local col_pos   = W - win_width - 2
 
-    -- Adjust row position based on tabline visibility
-    local show_tabline = false
-    if vim.o.showtabline == 2 then
-        show_tabline = true
-    elseif vim.o.showtabline == 1 and #vim.api.nvim_list_tabpages() > 1 then
-        show_tabline = true
-    end
-    local row_pos = show_tabline and 1 or 0
+    -- Anchor to the top-right corner of the window the user was editing.
+    -- nvim_win_get_position() returns screen-space coordinates that already
+    -- incorporate the bufferline/tabline row offset, so no separate check needed.
+    local origin_win   = P.get_origin_win()
+    local origin_pos   = vim.api.nvim_win_get_position(origin_win)
+    local origin_width = vim.api.nvim_win_get_width(origin_win)
+    local row_pos = origin_pos[1]
+    -- Align the picker's right border flush with the window's right content edge.
+    local col_pos = math.max(0, origin_pos[2] + origin_width - win_width - 2)
 
     -- ── Highlights (RgBuf* prefix avoids collision with full_picker) ──────
     vim.api.nvim_set_hl(0, "RgBufNormal",   { fg = "#c0caf5", bg = "NONE" })
@@ -945,3 +925,4 @@ function M.rg_buffer()
 end
 
 return M
+

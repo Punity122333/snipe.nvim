@@ -1,3 +1,4 @@
+
 -- lua/snipe/search.lua
 -- Grep, autocmds, command history, commands, help, highlights, icons,
 -- jumps, keymaps, lsp symbols, location list, man pages, plugins, quickfix, registers,
@@ -1295,28 +1296,7 @@ local function undotree_picker()
 	local selected = 1
 	local query = ""
 
-	local origin_win = (function()
-		local best, best_score = nil, -1
-		for _, w in ipairs(vim.api.nvim_list_wins()) do
-			if vim.api.nvim_win_get_config(w).relative == "" then
-				local buf = vim.api.nvim_win_get_buf(w)
-				local score = 0
-				if vim.bo[buf].buftype == "" then
-					score = score + 10
-				end
-				if vim.bo[buf].buflisted then
-					score = score + 2
-				end
-				if vim.api.nvim_buf_get_name(buf) ~= "" then
-					score = score + 1
-				end
-				if score > best_score then
-					best, best_score = w, score
-				end
-			end
-		end
-		return best or vim.api.nvim_get_current_win()
-	end)()
+	local origin_win = P.get_origin_win()
 
 	local ui = vim.api.nvim_list_uis()[1]
 	local W, H = ui.width, ui.height
@@ -1959,3 +1939,4 @@ function M.noice()
 end
 
 return M
+
