@@ -1,8 +1,4 @@
 
--- lua/snipe/picker.lua
--- Shared open_picker factory, highlight setup, and utility helpers.
--- Required by snipe.nav, snipe.search, and snipe.rg.
-
 local M = {}
 
 local has_devicons, devicons = pcall(require, "nvim-web-devicons")
@@ -81,8 +77,10 @@ end
 
 function M.jump_to(origin_win, filepath, lnum, col)
 	local abs = vim.fn.fnamemodify(filepath, ":p")
+
+	-- If the file is already visible in a valid (non-tool) window, jump there.
 	for _, w in ipairs(vim.api.nvim_list_wins()) do
-		if vim.api.nvim_win_get_config(w).relative == "" then
+		if M.is_valid_win(w) then
 			local wb = vim.api.nvim_win_get_buf(w)
 			if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(wb), ":p") == abs then
 				vim.api.nvim_set_current_win(w)
@@ -92,10 +90,41 @@ function M.jump_to(origin_win, filepath, lnum, col)
 			end
 		end
 	end
-	vim.api.nvim_set_current_win(origin_win)
+
+	-- Resolve a safe target window: prefer origin_win if it is still a valid
+	-- editable window, otherwise fall back to the first valid window found.
+	local target_win = M.is_valid_win(origin_win) and origin_win or nil
+	if not target_win then
+		for _, w in ipairs(vim.api.nvim_list_wins()) do
+			if M.is_valid_win(w) then
+				target_win = w
+				break
+			end
+		end
+	end
+
+	if target_win then
+		vim.api.nvim_set_current_win(target_win)
+	end
+
 	vim.cmd("edit " .. vim.fn.fnameescape(abs))
-	vim.api.nvim_win_set_cursor(0, { lnum or 1, col or 0 })
-	vim.cmd("normal! zz")
+
+	-- When a specific line was requested (grep / diagnostics / marks / refs),
+	-- jump there explicitly.  When lnum == 1 and col == 0 the caller had no
+	-- preference (plain file-open), so leave the cursor alone: persistence.nvim
+	-- (or shada) will already have restored it via BufReadPost, and overwriting
+	-- with {1, 0} would undo that work.
+	if lnum and lnum > 1 then
+		vim.api.nvim_win_set_cursor(0, { lnum, col or 0 })
+		vim.cmd("normal! zz")
+	else
+		-- Centre whatever position was restored, after BufReadPost fires.
+		vim.schedule(function()
+			if vim.api.nvim_win_is_valid(0) then
+				vim.cmd("normal! zz")
+			end
+		end)
+	end
 end
 
 function M.git_root()
@@ -105,46 +134,120 @@ end
 
 -- Filetypes that belong to tool/sidebar windows, not editable text buffers.
 local EXCLUDED_FT = {
-	["neo-tree"]          = true,
-	["NvimTree"]          = true,
-	["nvim-tree"]         = true,
-	["snacks_explorer"]   = true,
-	["snacks_dashboard"]  = true,
-	["snacks_notif"]      = true,
-	["snacks_terminal"]   = true,
-	["snacks_picker_list"]= true,
-	["snacks_picker_input"]=true,
-	["trouble"]           = true,
-	["aerial"]            = true,
-	["Outline"]           = true,
-	["toggleterm"]        = true,
-	["dapui_scopes"]      = true,
+	-- File explorers
+	["neo-tree"] = true,
+	["NvimTree"] = true,
+	["nvim-tree"] = true,
+	["oil"] = true,
+	["dirbuf"] = true,
+	["ranger"] = true,
+
+	-- Snacks
+	["snacks_explorer"] = true,
+	["snacks_dashboard"] = true,
+	["snacks_notif"] = true,
+	["snacks_terminal"] = true,
+	["snacks_picker_list"] = true,
+	["snacks_picker_input"] = true,
+	["snacks_notif_history"] = true,
+	["snacks_win"] = true,
+
+	-- Trouble / diagnostics
+	["trouble"] = true,
+	["Trouble"] = true,
+	["qf"] = true,
+
+	-- Outline / symbols
+	["aerial"] = true,
+	["Outline"] = true,
+	["symbols-outline"] = true,
+	["neotest-summary"] = true,
+	["neotest-output"] = true,
+	["neotest-output-panel"] = true,
+	["neotest-attach"] = true,
+
+	-- Terminals
+	["toggleterm"] = true,
+	["terminal"] = true,
+
+	-- DAP
+	["dapui_scopes"] = true,
 	["dapui_breakpoints"] = true,
-	["dapui_stacks"]      = true,
-	["dapui_watches"]     = true,
-	["dapui_console"]     = true,
-	["dapui_repl"]        = true,
-	["TelescopePrompt"]   = true,
-	["lazy"]              = true,
-	["mason"]             = true,
-	["help"]              = true,
-	["undotree"]          = true,
-	["diff"]              = true,
-	["startify"]          = true,
-	["alpha"]             = true,
-	["dashboard"]         = true,
-	["spectre_panel"]     = true,
-	["qf"]                = true,
+	["dapui_stacks"] = true,
+	["dapui_watches"] = true,
+	["dapui_console"] = true,
+	["dapui_repl"] = true,
+	["dap-repl"] = true,
+
+	-- AI / chat tools
+	["avante"] = true,
+	["AvanteInput"] = true,
+	["avante_input"] = true,
+	["avante_files"] = true,
+	["copilot-chat"] = true,
+	["copilot-panel"] = true,
+	["codecompanion"] = true,
+	["CopilotChat"] = true,
+
+	-- Search / replace
+	["grug-far"] = true,
+	["grug-far-history"] = true,
+	["grug-far-help"] = true,
+	["spectre_panel"] = true,
+
+	-- Notifications
+	["noice"] = true,
+	["notify"] = true,
+	["fidget"] = true,
+
+	-- Package managers / tooling
+	["TelescopePrompt"] = true,
+	["lazy"] = true,
+	["mason"] = true,
+	["mason-registry"] = true,
+
+	-- Docs / help
+	["help"] = true,
+	["man"] = true,
+
+	-- Undo
+	["undotree"] = true,
+	["diff"] = true,
+
+	-- Dashboards
+	["startify"] = true,
+	["alpha"] = true,
+	["dashboard"] = true,
+	["starter"] = true, -- mini.starter
+
+	-- Misc panels
+	["edgy"] = true,
+	["dropbar_menu"] = true,
+	["sagaoutline"] = true,
+	["sagafinder"] = true,
+	["calltree"] = true,
+	["flutterToolsOutline"] = true,
+	["OverseerList"] = true,
+	["OverseerForm"] = true,
+	["SidebarNvim"] = true,
 }
 
 --- Returns true when *w* is a regular, editable text window (not a sidebar /
 --- tool panel / floating picker).
 function M.is_valid_win(w)
-	if not vim.api.nvim_win_is_valid(w) then return false end
-	if vim.api.nvim_win_get_config(w).relative ~= "" then return false end
+	if not vim.api.nvim_win_is_valid(w) then
+		return false
+	end
+	if vim.api.nvim_win_get_config(w).relative ~= "" then
+		return false
+	end
 	local buf = vim.api.nvim_win_get_buf(w)
-	if vim.bo[buf].buftype ~= "" then return false end
-	if EXCLUDED_FT[vim.bo[buf].filetype] then return false end
+	if vim.bo[buf].buftype ~= "" then
+		return false
+	end
+	if EXCLUDED_FT[vim.bo[buf].filetype] then
+		return false
+	end
 	return true
 end
 
@@ -153,9 +256,13 @@ end
 --- in the layout; last resort is whatever nvim considers current.
 function M.get_origin_win()
 	local cur = vim.api.nvim_get_current_win()
-	if M.is_valid_win(cur) then return cur end
+	if M.is_valid_win(cur) then
+		return cur
+	end
 	for _, w in ipairs(vim.api.nvim_list_wins()) do
-		if M.is_valid_win(w) then return w end
+		if M.is_valid_win(w) then
+			return w
+		end
 	end
 	return cur
 end
@@ -706,4 +813,3 @@ function M.open_picker(opts)
 end
 
 return M
-
