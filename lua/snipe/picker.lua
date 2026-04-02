@@ -427,6 +427,12 @@ function M.open_picker(opts)
 
 	vim.api.nvim_set_current_win(input_win)
 	vim.cmd("startinsert")
+	vim.defer_fn(function()
+		if vim.api.nvim_win_is_valid(input_win) then
+			vim.api.nvim_set_current_win(input_win)
+			vim.cmd("startinsert")
+		end
+	end, 10)
 
 	local ns_sel = vim.api.nvim_create_namespace("snipe_sel")
 	local ns_cur = vim.api.nvim_create_namespace("snipe_cur")
