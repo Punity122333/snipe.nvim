@@ -1,4 +1,3 @@
-
 local M = {}
 
 local has_devicons, devicons = pcall(require, "nvim-web-devicons")
@@ -78,13 +77,26 @@ end
 function M.jump_to(origin_win, filepath, lnum, col)
 	local abs = vim.fn.fnamemodify(filepath, ":p")
 
+	-- Clamp lnum to the actual number of lines in a buffer (0 = unknown yet).
+	local function safe_set_cursor(buf, lnum_req, col_req)
+		if not lnum_req or lnum_req < 1 then
+			return
+		end
+		local count = vim.api.nvim_buf_line_count(buf)
+		if count < 1 then
+			return
+		end
+		local safe = math.min(lnum_req, count)
+		pcall(vim.api.nvim_win_set_cursor, 0, { safe, col_req or 0 })
+	end
+
 	-- If the file is already visible in a valid (non-tool) window, jump there.
 	for _, w in ipairs(vim.api.nvim_list_wins()) do
 		if M.is_valid_win(w) then
 			local wb = vim.api.nvim_win_get_buf(w)
 			if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(wb), ":p") == abs then
 				vim.api.nvim_set_current_win(w)
-				vim.api.nvim_win_set_cursor(0, { lnum or 1, col or 0 })
+				safe_set_cursor(wb, lnum or 1, col or 0)
 				vim.cmd("normal! zz")
 				return
 			end
@@ -109,13 +121,21 @@ function M.jump_to(origin_win, filepath, lnum, col)
 
 	vim.cmd("edit " .. vim.fn.fnameescape(abs))
 
+	-- Re-assert focus: BufReadPost / BufEnter autocommands fired by `edit`
+	-- (e.g. from file-explorer plugins like snacks) can steal window focus.
+	-- Setting the current window again after `edit` corrects that.
+	if target_win and vim.api.nvim_win_is_valid(target_win) then
+		vim.api.nvim_set_current_win(target_win)
+	end
+
 	-- When a specific line was requested (grep / diagnostics / marks / refs),
 	-- jump there explicitly.  When lnum == 1 and col == 0 the caller had no
 	-- preference (plain file-open), so leave the cursor alone: persistence.nvim
 	-- (or shada) will already have restored it via BufReadPost, and overwriting
 	-- with {1, 0} would undo that work.
 	if lnum and lnum > 1 then
-		vim.api.nvim_win_set_cursor(0, { lnum, col or 0 })
+		local buf = vim.api.nvim_win_get_buf(0)
+		safe_set_cursor(buf, lnum, col or 0)
 		vim.cmd("normal! zz")
 	else
 		-- Centre whatever position was restored, after BufReadPost fires.
