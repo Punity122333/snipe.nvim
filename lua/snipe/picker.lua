@@ -1,3 +1,4 @@
+
 local M = {}
 
 local has_devicons, devicons = pcall(require, "nvim-web-devicons")
@@ -76,35 +77,38 @@ end
 
 function M.jump_to(origin_win, filepath, lnum, col)
 	local abs = vim.fn.fnamemodify(filepath, ":p")
+	lnum = (lnum and lnum > 0) and lnum or 1
+	col  = col or 0
 
-	-- Clamp lnum to the actual number of lines in a buffer (0 = unknown yet).
-	local function safe_set_cursor(buf, lnum_req, col_req)
-		if not lnum_req or lnum_req < 1 then
+	-- Place cursor in `win` at (lnum, col), clamped to the buffer's real line
+	-- count so we never get "cursor out of range".  Uses win_execute so we
+	-- never need to make `win` the current window first.
+	local function place_cursor(win, buf)
+		if not (vim.api.nvim_win_is_valid(win) and vim.api.nvim_buf_is_valid(buf)) then
 			return
 		end
 		local count = vim.api.nvim_buf_line_count(buf)
-		if count < 1 then
-			return
-		end
-		local safe = math.min(lnum_req, count)
-		pcall(vim.api.nvim_win_set_cursor, 0, { safe, col_req or 0 })
+		if count < 1 then return end
+		local safe = math.min(lnum, count)
+		pcall(vim.api.nvim_win_set_cursor, win, { safe, col })
+		pcall(vim.fn.win_execute, win, "normal! zz")
 	end
 
-	-- If the file is already visible in a valid (non-tool) window, jump there.
+	-- ── Case 1: file already visible in an editor window ─────────────────────
 	for _, w in ipairs(vim.api.nvim_list_wins()) do
 		if M.is_valid_win(w) then
 			local wb = vim.api.nvim_win_get_buf(w)
 			if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(wb), ":p") == abs then
 				vim.api.nvim_set_current_win(w)
-				safe_set_cursor(wb, lnum or 1, col or 0)
-				vim.cmd("normal! zz")
+				place_cursor(w, wb)
 				return
 			end
 		end
 	end
 
-	-- Resolve a safe target window: prefer origin_win if it is still a valid
-	-- editable window, otherwise fall back to the first valid window found.
+	-- ── Case 2: choose where to open the file ────────────────────────────────
+	-- Priority: origin_win (what was focused before the picker) → first valid
+	-- editor window → create a new split as a last resort.
 	local target_win = M.is_valid_win(origin_win) and origin_win or nil
 	if not target_win then
 		for _, w in ipairs(vim.api.nvim_list_wins()) do
@@ -114,34 +118,67 @@ function M.jump_to(origin_win, filepath, lnum, col)
 			end
 		end
 	end
-
-	if target_win then
-		vim.api.nvim_set_current_win(target_win)
+	if not target_win then
+		-- No normal editor window exists. Prefer replacing a dashboard window
+		-- (alpha, dashboard, starter, snacks_dashboard) over a sidebar.
+		local dashboard_fts = {
+			dashboard = true, alpha = true, starter = true, snacks_dashboard = true,
+		}
+		for _, w in ipairs(vim.api.nvim_list_wins()) do
+			if vim.api.nvim_win_is_valid(w) and vim.api.nvim_win_get_config(w).relative == "" then
+				local ft = vim.bo[vim.api.nvim_win_get_buf(w)].filetype
+				if dashboard_fts[ft] then
+					target_win = w
+					break
+				end
+			end
+		end
+		-- Last resort: whatever is currently focused.
+		if not target_win then
+			target_win = vim.api.nvim_get_current_win()
+		end
 	end
 
+	-- Focus the chosen window before calling :edit so the buffer lands there.
+	vim.api.nvim_set_current_win(target_win)
 	vim.cmd("edit " .. vim.fn.fnameescape(abs))
 
-	-- Re-assert focus: BufReadPost / BufEnter autocommands fired by `edit`
-	-- (e.g. from file-explorer plugins like snacks) can steal window focus.
-	-- Setting the current window again after `edit` corrects that.
-	if target_win and vim.api.nvim_win_is_valid(target_win) then
-		vim.api.nvim_set_current_win(target_win)
+	-- ── Case 3: find where the buffer actually ended up ───────────────────────
+	-- BufReadPost / BufEnter / WinEnter autocommands (snacks explorer, neo-tree,
+	-- etc.) can steal focus or even move the buffer to a different window.
+	-- Scan all windows for the one that now holds our file rather than assuming
+	-- focus stayed on target_win.
+	local final_win, final_buf
+
+	for _, w in ipairs(vim.api.nvim_list_wins()) do
+		if M.is_valid_win(w) then
+			local wb = vim.api.nvim_win_get_buf(w)
+			if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(wb), ":p") == abs then
+				final_win = w
+				final_buf = wb
+				break
+			end
+		end
 	end
 
-	-- When a specific line was requested (grep / diagnostics / marks / refs),
-	-- jump there explicitly.  When lnum == 1 and col == 0 the caller had no
-	-- preference (plain file-open), so leave the cursor alone: persistence.nvim
-	-- (or shada) will already have restored it via BufReadPost, and overwriting
-	-- with {1, 0} would undo that work.
-	if lnum and lnum > 1 then
-		local buf = vim.api.nvim_win_get_buf(0)
-		safe_set_cursor(buf, lnum, col or 0)
-		vim.cmd("normal! zz")
+	-- Fallback: whatever window :edit left focus in.
+	if not final_win or not vim.api.nvim_win_is_valid(final_win) then
+		final_win = vim.api.nvim_get_current_win()
+		final_buf = vim.api.nvim_win_get_buf(final_win)
+	end
+
+	-- Always re-assert focus so sidebars cannot steal the cursor.
+	vim.api.nvim_set_current_win(final_win)
+
+	if lnum > 1 then
+		-- Specific line requested (grep / diagnostics / marks / refs).
+		place_cursor(final_win, final_buf)
 	else
-		-- Centre whatever position was restored, after BufReadPost fires.
+		-- No line preference – let persistence.nvim / shada restore position,
+		-- then just centre whatever line they landed on.
 		vim.schedule(function()
-			if vim.api.nvim_win_is_valid(0) then
-				vim.cmd("normal! zz")
+			if vim.api.nvim_win_is_valid(final_win) then
+				pcall(vim.fn.win_execute, final_win, "normal! zz")
 			end
 		end)
 	end
@@ -839,3 +876,4 @@ function M.open_picker(opts)
 end
 
 return M
+
