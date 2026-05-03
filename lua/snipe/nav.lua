@@ -13,11 +13,15 @@ local function jump_to(...)     P.jump_to(...) end
 local function file_preview(p, l) return P.file_preview(p, l) end
 local function render_file_row(...) return P.render_file_row(...) end
 
+-- Cache fd availability once at module load (vim.fn.executable is a vimL call).
+local _use_fd = vim.fn.executable("fd") == 1 or vim.fn.executable("fdfind") == 1
+local _fd_bin = vim.fn.executable("fd") == 1 and "fd" or "fdfind"
+
 -- ── Files (fd / find fallback) ────────────────────────────────────────────────
 
 local function files_picker()
-  local use_fd = vim.fn.executable("fd") == 1 or vim.fn.executable("fdfind") == 1
-  local fd_bin = vim.fn.executable("fd") == 1 and "fd" or "fdfind"
+  local use_fd = _use_fd
+  local fd_bin = _fd_bin
 
   local function build_cmd(query)
     if use_fd then
@@ -89,8 +93,8 @@ end
 
 local function config_files_picker()
   local config_dir = vim.fn.expand("~/.config/nvim")
-  local use_fd = vim.fn.executable("fd") == 1 or vim.fn.executable("fdfind") == 1
-  local fd_bin = vim.fn.executable("fd") == 1 and "fd" or "fdfind"
+  local use_fd = _use_fd
+  local fd_bin = _fd_bin
 
   local function build_cmd(query)
     if use_fd then
@@ -429,3 +433,4 @@ function M.projects()                   projects_picker() end
 function M.diagnostics(workspace)       diagnostics_picker(workspace) end
 
 return M
+

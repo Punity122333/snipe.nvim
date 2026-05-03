@@ -1,11 +1,14 @@
-
 local M = {}
 
 local has_devicons, devicons = pcall(require, "nvim-web-devicons")
 
 -- ─── highlights ───────────────────────────────────────────────────────────────
 
+local _hl_done = false
+
 function M.setup_hl()
+	if _hl_done then return end
+	_hl_done = true
 	vim.api.nvim_set_hl(0, "NavNormal", { fg = "#c0caf5" })
 	vim.api.nvim_set_hl(0, "NavBorder", { fg = "#27a1b9" })
 	vim.api.nvim_set_hl(0, "NavTitle", { fg = "#ff9e64" })
@@ -484,12 +487,6 @@ function M.open_picker(opts)
 
 	vim.api.nvim_set_current_win(input_win)
 	vim.cmd("startinsert")
-	vim.defer_fn(function()
-		if vim.api.nvim_win_is_valid(input_win) then
-			vim.api.nvim_set_current_win(input_win)
-			vim.cmd("startinsert")
-		end
-	end, 10)
 
 	local ns_sel = vim.api.nvim_create_namespace("snipe_sel")
 	local ns_cur = vim.api.nvim_create_namespace("snipe_cur")
@@ -655,6 +652,8 @@ function M.open_picker(opts)
 		row_hls = {}
 		local max_len = left_w - 3
 		local display = {}
+		-- Single pass: render each item once, collect text + both hl tables.
+		local row_match_hls = {}
 		for i, item in ipairs(filtered) do
 			local rdata = opts.render_item and opts.render_item(item, max_len) or { text = tostring(item) }
 			local text = rdata.text or ""
@@ -666,6 +665,7 @@ function M.open_picker(opts)
 			end
 			display[i] = text
 			row_hls[i] = rdata.highlights or {}
+			row_match_hls[i] = rdata.match_hl
 		end
 		if #filtered == 0 then
 			display = { "   (no results)" }
@@ -676,10 +676,9 @@ function M.open_picker(opts)
 				vim.api.nvim_buf_add_highlight(results_buf, ns_hl, h[3], i - 1, h[1], h[2])
 			end
 		end
-		for i, item in ipairs(filtered) do
-			local rdata = opts.render_item and opts.render_item(item, max_len) or {}
-			if rdata.match_hl then
-				for _, mh in ipairs(rdata.match_hl) do
+		for i, match_hl in pairs(row_match_hls) do
+			if match_hl then
+				for _, mh in ipairs(match_hl) do
 					vim.api.nvim_buf_add_highlight(results_buf, ns_match, mh[3], i - 1, mh[1], mh[2])
 				end
 			end
@@ -876,4 +875,5 @@ function M.open_picker(opts)
 end
 
 return M
+
 
