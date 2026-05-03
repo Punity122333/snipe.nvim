@@ -863,10 +863,12 @@ function M.open_picker(opts)
 
     if opts.live and opts.get_items then
         set_ro(results_buf, { "   (loading…)" })
-        opts.get_items(query, function(items)
-            filtered = items
-            selected = 1
-            vim.schedule(render_results)
+        vim.schedule(function()
+            opts.get_items(query, function(items)
+                filtered = items
+                selected = 1
+                vim.schedule(render_results)
+            end)
         end)
     else
         filtered = all_items
