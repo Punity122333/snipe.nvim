@@ -17,11 +17,53 @@ local function render_file_row(...) return P.render_file_row(...) end
 local _use_fd = vim.fn.executable("fd") == 1 or vim.fn.executable("fdfind") == 1
 local _fd_bin = vim.fn.executable("fd") == 1 and "fd" or "fdfind"
 
+-- ── File cache ────────────────────────────────────────────────────────────────
+-- Populated at setup() time so the first <leader>ff open is instant.
+
+local _fcache = {
+  files   = nil,   -- list of file paths
+  cwd     = nil,   -- cwd the cache was built for
+  loading = false, -- guard against concurrent jobs
+}
+
+local function _build_fd_cmd(dir)
+  if _use_fd then
+    return { _fd_bin, "--type", "f", "--color=never", "--hidden",
+             "--exclude", ".git", "--exclude", "node_modules", ".", dir }
+  else
+    return { "find", dir, "-type", "f",
+             "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*" }
+  end
+end
+
+local function _refresh_cache(cwd)
+  if _fcache.loading then return end
+  _fcache.loading = true
+  vim.fn.jobstart(_build_fd_cmd(cwd), {
+    stdout_buffered = true,
+    on_stdout = function(_, data)
+      _fcache.files   = vim.tbl_filter(function(l) return l ~= "" end, data or {})
+      _fcache.cwd     = cwd
+      _fcache.loading = false
+    end,
+    on_exit = function(_, code)
+      if code ~= 0 then _fcache.loading = false end
+    end,
+  })
+end
+
+--- Called from snipe.setup() to pre-warm the file list before the user opens
+--- the picker for the first time.
+function M.warm_cache()
+  _refresh_cache(vim.fn.getcwd())
+end
+
 -- ── Files (fd / find fallback) ────────────────────────────────────────────────
 
 local function files_picker()
   local use_fd = _use_fd
   local fd_bin = _fd_bin
+  local cwd = vim.fn.getcwd()
 
   local function build_cmd(query)
     if use_fd then
@@ -30,12 +72,30 @@ local function files_picker()
       table.insert(cmd, ".")
       return cmd
     else
-      local cmd = { "find", vim.fn.getcwd(), "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*" }
+      local cmd = { "find", cwd, "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*" }
       if query ~= "" then table.insert(cmd, "-name"); table.insert(cmd, "*" .. query .. "*") end
       return cmd
     end
   end
 
+  -- ── Cache hit: instant open, background refresh for next time ────────────
+  if _fcache.files and _fcache.cwd == cwd then
+    local snapshot = _fcache.files  -- local ref so it's stable for this session
+    -- Refresh in background so the cache stays fresh after file changes.
+    _refresh_cache(cwd)
+    open_picker({
+      title = "Files", all_items = snapshot,
+      filter_items  = function(all, q) return filter(all, q) end,
+      render_item   = function(item, max_len) return render_file_row(item, nil, nil, max_len) end,
+      preview_item  = function(item) return file_preview(item, 1) end,
+      open_item     = function(item, ow) jump_to(ow, item, 1, 0) end,
+    })
+    return
+  end
+
+  -- ── Cache miss: live mode (first open before warm_cache finished, or cwd changed) ──
+  -- Also kick off a cache build so subsequent opens are instant.
+  _refresh_cache(cwd)
   open_picker({
     title = "Files", live = true,
     get_items = function(q, cb)
@@ -45,7 +105,7 @@ local function files_picker()
         on_exit   = function(_, code) if code ~= 0 then cb({}) end end,
       })
     end,
-    render_item = function(item, max_len) return render_file_row(item, nil, nil, max_len) end,
+    render_item  = function(item, max_len) return render_file_row(item, nil, nil, max_len) end,
     preview_item = function(item) return file_preview(item, 1) end,
     open_item    = function(item, ow) jump_to(ow, item, 1, 0) end,
   })
@@ -433,4 +493,5 @@ function M.projects()                   projects_picker() end
 function M.diagnostics(workspace)       diagnostics_picker(workspace) end
 
 return M
+
 

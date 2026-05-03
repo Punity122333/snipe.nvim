@@ -1,4 +1,3 @@
-
 local M = {}
 
 M.nav    = require("snipe.nav")
@@ -14,6 +13,9 @@ function M.setup(opts)
   if opts.keys then
     require("snipe.keys").register()
   end
+  -- Pre-populate the file cache in the background so the first <leader>ff is instant.
+  require("snipe.nav").warm_cache()
 end
 
 return M
+
